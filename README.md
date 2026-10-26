@@ -20,6 +20,15 @@ Built from scratch on purpose — **no LangChain, no external vector DB**, no pa
 |---|---|---|
 | ![Dashboard](docs/screenshots/1-dashboard.png) | ![Ask](docs/screenshots/2-ask.png) | ![Ingest](docs/screenshots/5-ingest.png) |
 
+## Live demo
+
+- **Dashboard**: https://karma-dashboard-boradeomkar36-gmailcoms-projects.vercel.app/
+- **API**: https://karma-api-boradeomkar36-gmailcoms-projects.vercel.app/api/health
+
+The Vercel deployment runs in per-instance in-memory MongoDB demo mode
+(`llm`-grounded answers via a Groq-compatible endpoint); connect a `MONGODB_URI`
+(MongoDB Atlas) for persistent memory.
+
 | Reports | Experience | Profile |
 |---|---|---|
 | ![Reports](docs/screenshots/3-reports.png) | ![Experience](docs/screenshots/6-experience.png) | ![Profile](docs/screenshots/4-profile.png) |
