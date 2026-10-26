@@ -15,6 +15,12 @@ async function connectDb(uri, { inMemory = false, onMemoryStarted } = {}) {
   let finalUri = uri;
 
   if (inMemory || process.env.KARMA_IN_MEMORY_DB === '1') {
+    // Serverless sandboxes (Vercel/Lambda) have a read-only or missing home dir;
+    // mongodb-memory-server must download its binary into writable /tmp.
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      process.env.HOME = '/tmp';
+      process.env.MONGOMS_DOWNLOAD_DIR = '/tmp/mongodb-binaries';
+    }
     const { MongoMemoryServer } = require('mongodb-memory-server');
     memoryServer = await MongoMemoryServer.create();
     finalUri = memoryServer.getUri();
