@@ -13,9 +13,25 @@ function createApp() {
 
   app.use('/api', apiRouter);
 
+  // Friendly landing so opening the API domain in a browser explains itself.
+  app.get('/', (req, res) => {
+    res.json({
+      service: 'KARMA API',
+      status: 'running',
+      frontend: 'https://karma-dashboard-boradeomkar36-gmailcoms-projects.vercel.app/',
+      health: '/api/health',
+      keyRoutes: ['/api/profile', '/api/documents', '/api/ask', '/api/experience', '/api/reports', '/api/runs', '/api/agent/run'],
+    });
+  });
+
   // Unknown /api routes return structured JSON, not an HTML express 404.
   app.use('/api', (req, res) => {
-    res.status(404).json({ error: `No route: ${req.method} ${req.originalUrl}` });
+    res.status(404).json({ error: `No route: ${req.method} ${req.originalUrl}`, hint: 'See / for available routes' });
+  });
+
+  // Structured JSON for any other path too (no "Cannot GET /" bodies).
+  app.use((req, res) => {
+    res.status(404).json({ error: `Not found: ${req.method} ${req.originalUrl}` });
   });
 
   // JSON error handler — errors carrying err.status keep their status code
