@@ -6,119 +6,104 @@ memory, then runs itself on autopilot: continuously generating insight reports, 
 retrieval quality, enriching its own index, and answering natural-language questions with
 cited sources from *your* experience.
 
-Built from scratch on purpose — **no LangChain, no external vector DB**, no paid API required
-(optional OpenAI-compatible LLM uplift for grounded answer synthesis, works with Groq / OpenAI / any compatible endpoint).
+**Stack: Python · FastAPI · RAG · Qdrant · GPT-4o · Gemini** — the RAG engine is built
+from scratch (no LangChain); the vector side runs on Qdrant, the lexical side on a
+hand-written Okapi BM25, and rank fusion/recall on scikit-learn TF-IDF.
 
 | Layer | What it does | Tech |
 |---|---|---|
-| RAG engine | Structural chunking → TF-IDF/BM25 hybrid retrieval → reciprocal-rank fusion → deterministic reranking → cited, hallucination-resistant answer synthesis | Pure Node.js |
-| Autopilot agent | DDA loop (Discover → Digest → Augment): scheduled self-runs, autonomous insight generation, retrieval-quality self-evaluation, in-place index self-enrichment (no duplicate bloat) | node-cron |
-| AIML analytics | Skill-gap analysis vs a target capability profile, experience trajectory analytics, retrieval-quality probes | Pure Node.js |
-| MERN | MongoDB (Mongoose) + Express REST API + React dashboard (profile editor, document ingestion with resume auto-parsing, ask UI, reports, autopilot controls) | Full stack |
+| RAG engine | Structural chunking → hybrid **BM25 + TF-IDF (scikit-learn)** retrieval with weighted **reciprocal-rank fusion** → **Qdrant** vector search → **GPT-4o / Gemini** reranking → cited, hallucination-resistant answer synthesis | Python, FastAPI |
+| Autopilot agent | DDA loop (Discover → Digest → Augment): cron-driven self-runs, autonomous insight generation, retrieval-quality self-evaluation, in-place index self-enrichment (no duplicate bloat) | APScheduler |
+| AIML analytics | Skill-gap analysis vs a target capability profile, experience trajectory analytics, **Pandas/NumPy retrieval evaluation** (precision@k, recall@k, MRR, nDCG) | Pandas, NumPy, scikit-learn |
+| Infra | MongoDB (Motor) persistence, Redis answer caching with corpus-version invalidation, embedded fallbacks so it runs with zero installs, Docker Compose for the full stack | Docker, Redis, MongoDB |
 
 | Dashboard | Ask | Ingest |
 |---|---|---|
 | ![Dashboard](docs/screenshots/1-dashboard.png) | ![Ask](docs/screenshots/2-ask.png) | ![Ingest](docs/screenshots/5-ingest.png) |
 
-## Live demo
+## Quick start (zero installs)
 
-- **Dashboard**: https://karma-dashboard-boradeomkar36-gmailcoms-projects.vercel.app/
-- **API**: https://karma-api-boradeomkar36-gmailcoms-projects.vercel.app/api/health
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt      # Linux/macOS: .venv/bin/pip ...
+.venv\Scripts\python server.py                     # API on http://localhost:5001
 
-The Vercel deployment runs in per-instance in-memory MongoDB demo mode
-(`llm`-grounded answers via a Groq-compatible endpoint); connect a `MONGODB_URI`
-(MongoDB Atlas) for persistent memory.
+# frontend (new terminal)
+cd frontend
+npm install
+npm run dev                                        # dashboard on http://localhost:5173
+```
 
-| Reports | Experience | Profile |
-|---|---|---|
-| ![Reports](docs/screenshots/3-reports.png) | ![Experience](docs/screenshots/6-experience.png) | ![Profile](docs/screenshots/4-profile.png) |
+Without MongoDB/Qdrant/Redis running, the API automatically uses embedded fallbacks
+(in-memory demo database, in-process Qdrant, in-process cache) — the full stack runs
+with zero local services. Set `MONGODB_URI` in `backend/.env` for persistent memory.
+
+## Docker Compose (full stack)
+
+```bash
+docker compose up --build
+# dashboard: http://localhost:8080   API: http://localhost:5001/api/health
+```
+
+Provisions MongoDB, Qdrant, Redis, the FastAPI backend and the dashboard. LLM keys
+can come from `backend/.env` or environment variables.
 
 ## Highlights
 
-- **From-scratch hybrid retrieval**: BM25 (lexical) + TF-IDF cosine (semantic) fused with
-  reciprocal rank fusion, then a deterministic reranker (term coverage, heading relevance,
-  source-type weights, length/freshness priors). Fitted engines are cached and invalidated
-  by a corpus-version counter — no per-query rebuilds.
-- **Cited answers, anti-hallucination by construction**: answers may come from the local
-  extractive synthesizer or an LLM, but both are grounded in retrieved chunks; inline `[n]`
-  citations always map to the listed sources.
-- **Self-improving agent**: each cycle finds gaps (uncovered skills, weak retrieval probes,
-  unindexed experiences), writes skill-gap / trajectory / retrieval-quality reports, and
-  augments its own index — idempotently, dedupe-checked so scheduled runs never bloat it.
-- **Tested**: 103 backend tests (Jest, unit + integration over in-memory MongoDB) and
-  26 frontend tests (Vitest + React Testing Library), plus a production build check.
+- **Hybrid retrieval, from scratch**: Okapi BM25 (k1=1.5, b=0.75) fused with
+  scikit-learn TF-IDF cosine via weighted reciprocal rank fusion (0.7/0.3), then a
+  deterministic reranker (term coverage, heading relevance, source-type weights,
+  length/freshness priors). Fitted engines are cached per corpus version — no
+  per-query rebuilds.
+- **Qdrant vector search**: chunk embeddings live in a Qdrant collection (sparse
+  TF-IDF vectors), re-synced on every index change; degrades gracefully to in-process
+  cosine when Qdrant is unavailable.
+- **GPT-4o + Gemini uplift**: LLM reranking of the fused pool plus grounded answer
+  synthesis with inline `[n]` citations that always map to the listed sources. Any
+  failure silently falls back to the local extractive pipeline — never fatal.
+- **Self-improving agent**: each cycle finds gaps (uncovered skills, weak retrieval
+  probes, unindexed experiences), writes skill-gap / trajectory / retrieval-quality
+  reports, and augments its own index — idempotently, dedupe-checked so scheduled
+  runs never bloat it.
+- **Measured retrieval quality**: a Pandas/NumPy evaluator probes the retriever with
+  corpus-derived questions and reports precision@k, recall@k, MRR and nDCG
+  (`GET /api/evaluation`).
+- **Tested**: 103 backend tests (pytest, unit + integration over an in-memory
+  MongoDB) and 26 frontend tests (Vitest + React Testing Library) — 129 total —
+  plus a production build check.
 
-## Quick start
-
-```bash
-# 1) backend
-cd backend
-npm install
-npm run dev          # API on http://localhost:5001
-
-# 2) frontend (new terminal)
-cd frontend
-npm install
-npm run dev          # dashboard on http://localhost:5173
-```
-
-### MongoDB
-
-Set `MONGODB_URI` (default `mongodb://127.0.0.1:27017/karma`) in `backend/.env`.
-
-- Don't have MongoDB installed locally? Set `KARMA_IN_MEMORY_DB=1` in `backend/.env`
-  and the backend will start its own temporary in-memory MongoDB instance (same engine
-  used for tests) — the full stack runs with zero local installs.
-
-### Optional LLM uplift (Groq / OpenAI-compatible)
-
-The RAG engine runs fully local by default. To get LLM-written grounded answers, put any
-OpenAI-compatible endpoint into `backend/.env` (`OPENAI_API_KEY`, `OPENAI_BASE_URL`,
-`OPENAI_MODEL`) — e.g. Groq:
+## Configuration (`backend/.env`)
 
 ```env
-OPENAI_API_KEY=gsk_...
-OPENAI_BASE_URL=https://api.groq.com/openai/v1
-OPENAI_MODEL=openai/gpt-oss-120b
+MONGODB_URI=mongodb://127.0.0.1:27017/karma   # or a MongoDB Atlas URI
+QDRANT_URL=                                   # empty → embedded in-memory Qdrant
+REDIS_URL=                                    # empty → in-process cache fallback
+KARMA_AUTOPILOT_ENABLED=false
+KARMA_AUTOPILOT_CRON=*/15 * * * *             # APScheduler cron
+OPENAI_API_KEY=                               # GPT-4o / OpenAI-compatible (Groq, etc.)
+OPENAI_MODEL=gpt-4o
+GEMINI_API_KEY=                               # Google Gemini uplift
+GEMINI_MODEL=gemini-2.0-flash
 ```
 
-The `/api/ask` response reports `llmUsed: true` and `mode: "llm"` when the uplift is active;
-failures fall back to the local extractive answer automatically.
-
-## Deployment (Vercel + MongoDB Atlas)
-
-Both services deploy as separate Vercel projects:
-
-**1) Backend** (`karma/backend`):
-- Create a free MongoDB Atlas cluster and copy the connection string.
-- Import the project into Vercel (root = `backend`); `vercel.json` and `api/index.js`
-  are preconfigured serverless entrypoints.
-- Environment variables: `MONGODB_URI` (Atlas URI — required for persistent data),
-  optional `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL`.
-  Without `MONGODB_URI` the API runs in per-instance in-memory demo mode (data resets).
-- Note: scheduled autopilot requires a long-running process — use local/scheduled hosting
-  for cron; serverless deployments run cycles on demand via the dashboard/API.
-
-**2) Frontend** (`karma/frontend`):
-- Import into Vercel (root = `frontend`) — it builds with Vite automatically.
-- Environment variable: `VITE_API_BASE_URL=https://<your-backend>.vercel.app/api`
-  (set it after the backend deployment is live).
+The `/api/ask` response reports `llmUsed: true` and `metrics.mode: "llm"` when the
+uplift is active, plus `metrics.rerankedBy` (`heuristic`, `openai` or `gemini`).
 
 ## Autonomous baseline data
 
 On first boot with an empty database, KARMA seeds itself with a starter experience
-profile (configurable in `backend/src/data/seedExperience.js`). Replace it with *your*
-real resume/projects/notes — or simply paste your resume through the dashboard's
+profile (configurable in `backend/app/data/seed_experience.py`). Replace it with
+*your* real resume/projects/notes — or simply paste your resume through the dashboard's
 **Ingest** tab: resume-shaped text is parsed into profile + experiences and indexed
 automatically (idempotent — re-committing the same resume does not duplicate entries).
 
 ## Testing
 
 ```bash
-cd backend && npm test              # unit + integration tests (Jest, in-memory MongoDB;
-                                    # first run downloads the temporary MongoDB binary once)
-cd frontend && npm test             # unit + component tests (Vitest)
-cd frontend && npm run test:build   # production build check (vite build)
+cd backend && .venv\Scripts\python -m pytest tests -q      # 103 tests (in-memory MongoDB)
+cd frontend && npm test                                    # 26 tests (Vitest)
+cd frontend && npm run test:build                          # production build check
 ```
 
 ## API overview
@@ -134,16 +119,20 @@ cd frontend && npm run test:build   # production build check (vite build)
 | `POST /api/ask` | RAG query → cited answer (local extractive or LLM-grounded) |
 | `GET /api/experience` | Structured experience timeline + analytics |
 | `GET /api/reports` | Autonomously generated insight reports (`?kind=` filter) |
+| `GET /api/evaluation` | Pandas/NumPy retrieval metrics (precision@k, recall@k, MRR, nDCG) |
 | `GET /api/runs` | Autopilot run history (per-phase steps, timings, stats) |
-| `POST /api/agent/autopilot/start` / `.../stop` | Control the scheduled autopilot |
+| `POST /api/agent/autopilot/start` / `.../stop` | Control the APScheduler autopilot |
 | `POST /api/agent/run` | Trigger one autopilot cycle on demand |
 | `GET /api/agent/status` | Scheduler state |
 
 ## Architecture notes
 
 - The corpus and fitted retrieval engines live behind a version counter
-  (`ragIndex.getCorpus()`): indexing operations bump the version, every consumer's cache
-  is invalidated automatically.
+  (`rag_index.corpus_version`): indexing operations bump the version, every consumer's
+  cache (corpus list, BM25/TF-IDF fit, Qdrant collection, Redis answer cache) is
+  invalidated automatically.
 - Chunking preserves headings and list structure with controlled overlap; the final
   remainder is merged (never silently dropped), and no chunk exceeds the size cap.
 - Validation errors surface as HTTP 400s; unknown routes return structured JSON 404s.
+- Deployment: any host that runs Docker (or a long-running Python process) works —
+  `docker compose up --build` is the reference deployment.

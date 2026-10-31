@@ -1,0 +1,56 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      PORT: "5001"
+      KARMA_BOOTSTRAP: "1"
+      MONGODB_URI: mongodb://mongo:27017/karma
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379
+      KARMA_AUTOPILOT_ENABLED: ${KARMA_AUTOPILOT_ENABLED:-false}
+      KARMA_AUTOPILOT_CRON: ${KARMA_AUTOPILOT_CRON:-*/15 * * * *}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+    depends_on:
+      - mongo
+      - qdrant
+      - redis
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:5001/api
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  mongo-data:
+  qdrant-data:
